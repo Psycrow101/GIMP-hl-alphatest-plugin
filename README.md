@@ -17,3 +17,6 @@ Download and extract the `hl-alphatest` folder to GIMP's `plug-ins` folder:
 Go to Image > Half-Life > Alphatest and select the maximum alpha channel value for filtering and the dither type. This menu will be available only for images with transparent colors. If your image is already in indexed mode, switch to RGB mode (Image > Mode > RGB).
 
 *After using the plugin, your layer groups will be merged.*
+
+## See also
+[GIMP plugin for import and export of Half-Life sprites (.spr)](https://github.com/Psycrow101/GIMP-hl-sprite-plugin)

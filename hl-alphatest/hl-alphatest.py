@@ -1,6 +1,7 @@
 #!/usr/bin/env python2
 
 from gimpfu import *
+from array import array
 
 
 AUTHOR           = 'Psycrow'
@@ -23,7 +24,7 @@ def hl_alphatest(image, drawable, power, dither_type):
     num_bytes, colormap = pdb.gimp_image_get_colormap(image)
     pdb.gimp_image_set_colormap(image, num_bytes + 3, list(colormap) + [0, 0, 255])
 
-    last_index = chr(num_bytes // 3)
+    last_index = num_bytes // 3
     layers_num = len(image.layers)
 
     gimp.progress_init('Converting %d %s to alphatest' % (layers_num, 'layer' if layers_num == 1 else 'layers'))
@@ -32,13 +33,12 @@ def hl_alphatest(image, drawable, power, dither_type):
         if layer.type == INDEXED_IMAGE:
             continue
 
-        pr = layer.get_pixel_rgn(0, 0, layer.width, layer.height)
-        indices = pr[:, :]
-        new_indices = ''
+        rgn = layer.get_pixel_rgn(0, 0, layer.width, layer.height)
+        indices = array('B', rgn[:, :])
         for i in xrange(0, len(indices), 2):
             idx, alpha = indices[i:i+2]
-            new_indices += last_index + '\x00' if ord(alpha) <= power else idx + '\xFF'
-        pr[:, :] = new_indices
+            indices[i], indices[i+1] = (last_index, 0) if alpha <= power else (idx, 255)
+        rgn[:, :] = indices.tostring()
         layer.flush()
 
         gimp.progress_update(l / float(layers_num))
