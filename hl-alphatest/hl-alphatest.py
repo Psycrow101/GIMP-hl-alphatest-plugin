@@ -11,7 +11,7 @@ COPYRIGHT_YEAR   = '2020'
 LOAD_PROC        = 'hl-alphatest'
 
 
-def hl_alphatest(image, drawable, power, dither_type):
+def hl_alphatest(image, drawable, power, dither_type, force_pal):
     pdb.gimp_context_push()
     pdb.gimp_image_undo_group_start(image)
 
@@ -22,9 +22,11 @@ def hl_alphatest(image, drawable, power, dither_type):
     pdb.gimp_image_convert_indexed(image, dither_type, MAKE_PALETTE, 255, 0, 0, '')
 
     num_bytes, colormap = pdb.gimp_image_get_colormap(image)
-    pdb.gimp_image_set_colormap(image, num_bytes + 3, list(colormap) + [0, 0, 255])
+    addition_colors = (255 - num_bytes // 3) * [0, 0, 0] if force_pal else []
+    all_colors = list(colormap) + addition_colors + [0, 0, 255]
+    pdb.gimp_image_set_colormap(image, len(all_colors), all_colors)
 
-    last_index = num_bytes // 3
+    last_index = len(all_colors) // 3 - 1
     layers_num = len(image.layers)
 
     gimp.progress_init('Converting %d %s to alphatest' % (layers_num, 'layer' if layers_num == 1 else 'layers'))
@@ -69,6 +71,7 @@ register(
             'FS (reduced color bleeding)',
             'Positioned'
         )),
+        (PF_TOGGLE, 'force-pal', 'Force 256 size palette', True),
     ],
     [],
     hl_alphatest, menu='<Image>/Image/Half-Life/'
