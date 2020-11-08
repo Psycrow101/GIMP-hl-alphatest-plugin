@@ -37,7 +37,8 @@ def hl_alphatest(image, drawable, power, dither_type):
         indices = array('B', rgn[:, :])
         for i in xrange(0, len(indices), 2):
             idx, alpha = indices[i:i+2]
-            indices[i], indices[i+1] = (last_index, 0) if alpha <= power else (idx, 255)
+            indices[i] = last_index if alpha <= power else idx
+            indices[i+1] = 255
         rgn[:, :] = indices.tostring()
         layer.flush()
 
