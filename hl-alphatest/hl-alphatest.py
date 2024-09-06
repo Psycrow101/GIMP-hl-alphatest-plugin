@@ -11,6 +11,39 @@ COPYRIGHT_YEAR   = '2020'
 LOAD_PROC        = 'hl-alphatest'
 
 
+def prepare_layers(image, power):
+    layers_num = len(image.layers)
+
+    gimp.progress_init('Preparing %d %s' % (layers_num, 'layer' if layers_num == 1 else 'layers'))
+
+    for l, layer in enumerate(image.layers):
+        # Create a new layer to save the results (otherwise it will be impossible to undo the operation)
+        new_layer = gimp.Layer(image, layer.name + "_hl_alphatest", layer.width, layer.height, layer.type, layer.opacity, layer.mode)
+        image.add_layer(new_layer, l)
+        pdb.gimp_edit_clear(new_layer)
+        layer_name = layer.name
+
+        rgn = layer.get_pixel_rgn(0, 0, layer.width, layer.height)
+        colors = array('B', rgn[:, :])
+
+        if layer.type == RGBA_IMAGE:
+            for i in xrange(0, len(colors), 4):
+                alpha = colors[i + 3]
+                colors[i + 3] = 0 if alpha <= power else 255
+
+        elif layer.type == GRAYA_IMAGE:
+            for i in xrange(0, len(colors), 2):
+                alpha = colors[i + 1]
+                colors[i + 1] = 0 if alpha <= power else 255
+
+        rgn = new_layer.get_pixel_rgn(0, 0, layer.width, layer.height)
+        rgn[:, :] = colors.tostring()
+        image.remove_layer(layer)
+        new_layer.name = layer_name
+
+        gimp.progress_update(l / float(layers_num))
+
+
 def hl_alphatest(image, drawable, power, dither_type, force_pal):
     pdb.gimp_context_push()
     pdb.gimp_image_undo_group_start(image)
@@ -19,6 +52,8 @@ def hl_alphatest(image, drawable, power, dither_type, force_pal):
     for layer in image.layers:
         if pdb.gimp_item_is_group(layer):
             pdb.gimp_image_merge_layer_group(image, layer)
+
+    prepare_layers(image, power)
     pdb.gimp_image_convert_indexed(image, dither_type, MAKE_PALETTE, 255, 0, 0, '')
 
     num_bytes, colormap = pdb.gimp_image_get_colormap(image)
@@ -43,6 +78,7 @@ def hl_alphatest(image, drawable, power, dither_type, force_pal):
             indices[i+1] = 255
         rgn[:, :] = indices.tostring()
         layer.flush()
+        layer.update(0, 0, layer.width, layer.height)
 
         gimp.progress_update(l / float(layers_num))
 
