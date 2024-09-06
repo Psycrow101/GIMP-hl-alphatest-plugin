@@ -44,7 +44,7 @@ def prepare_layers(image, power):
         gimp.progress_update(l / float(layers_num))
 
 
-def hl_alphatest(image, drawable, power, dither_type, force_pal):
+def hl_alphatest(image, drawable, power, dither_type, force_pal, alpha_dither):
     pdb.gimp_context_push()
     pdb.gimp_image_undo_group_start(image)
 
@@ -53,8 +53,9 @@ def hl_alphatest(image, drawable, power, dither_type, force_pal):
         if pdb.gimp_item_is_group(layer):
             pdb.gimp_image_merge_layer_group(image, layer)
 
-    prepare_layers(image, power)
-    pdb.gimp_image_convert_indexed(image, dither_type, MAKE_PALETTE, 255, 0, 0, '')
+    if not alpha_dither:
+        prepare_layers(image, power)
+    pdb.gimp_image_convert_indexed(image, dither_type, MAKE_PALETTE, 255, alpha_dither, 0, '')
 
     num_bytes, colormap = pdb.gimp_image_get_colormap(image)
     addition_colors = (255 - num_bytes // 3) * [0, 0, 0] if force_pal else []
@@ -108,6 +109,7 @@ register(
             'Positioned'
         )),
         (PF_TOGGLE, 'force-pal', 'Force 256 size palette', True),
+        (PF_TOGGLE, 'alpha-dither', 'Use alpha dither', False),
     ],
     [],
     hl_alphatest, menu='<Image>/Image/Half-Life/'
