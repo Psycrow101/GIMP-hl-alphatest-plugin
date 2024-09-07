@@ -44,7 +44,7 @@ def prepare_layers(image, power):
         gimp.progress_update(l / float(layers_num))
 
 
-def hl_alphatest(image, drawable, power, dither_type, force_pal, alpha_dither):
+def hl_alphatest(image, drawable, power, auto_power, dither_type, force_pal, alpha_dither):
     pdb.gimp_context_push()
     pdb.gimp_image_undo_group_start(image)
 
@@ -53,7 +53,7 @@ def hl_alphatest(image, drawable, power, dither_type, force_pal, alpha_dither):
         if pdb.gimp_item_is_group(layer):
             pdb.gimp_image_merge_layer_group(image, layer)
 
-    if not alpha_dither:
+    if not auto_power and not alpha_dither:
         prepare_layers(image, power)
     pdb.gimp_image_convert_indexed(image, dither_type, MAKE_PALETTE, 255, alpha_dither, 0, '')
 
@@ -101,7 +101,8 @@ register(
     [
         (PF_IMAGE, 'image', 'Input image', None),
         (PF_DRAWABLE, 'drawable', 'Input drawable', None),
-        (PF_SLIDER, 'power', 'Maximum alpha value {0 - 255}', 0, (0, 255, 1)),
+        (PF_SLIDER, 'power', 'Maximum alpha value {0 - 254}', 0, (0, 254, 1)),
+        (PF_TOGGLE, 'auto-power', 'Auto maximum alpha value', False),
         (PF_OPTION, 'dither-type', 'The dither type to use', 0, (
             'None',
             'FS (normal)',
