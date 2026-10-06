@@ -2,7 +2,7 @@
 The plugin converts the image to color indexing mode, moving the alpha channel colors as the last index in the palette. This allows to quickly prepare bitmap images as textures in alphatest mode for Half-Life game.
 
 ## Requirements
-1. [GIMP](https://www.gimp.org/), recommended GIMP version >= 2.10.  
+1. [GIMP](https://www.gimp.org/), GIMP version 2.10.  
 2. GIMP's python module gimpfu.  
 
 ## Installation
