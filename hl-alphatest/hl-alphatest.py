@@ -1,119 +1,182 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python3
 
-from gimpfu import *
 from array import array
+import sys
+
+import gi
+
+gi.require_version('Gimp', '3.0')
+
+gi.require_version('GimpUi', '3.0')
+gi.require_version('Gegl', '0.4')
+gi.require_version('Babl', '0.1')
+
+from gi.repository import Gimp, GimpUi, Gegl, GObject, Babl, GLib
+
+PROC_NAME   = 'plug-in-hl-alphatest'
+AUTHOR      = 'Psycrow'
+DATE        = '2020-2026'
 
 
-AUTHOR           = 'Psycrow'
-COPYRIGHT        = AUTHOR
-COPYRIGHT_YEAR   = '2020'
+def image_binarize_alpha(image, power):
+    layers = image.get_layers()
 
-LOAD_PROC        = 'hl-alphatest'
-
-
-def prepare_layers(image, power):
-    layers_num = len(image.layers)
-
-    gimp.progress_init('Preparing %d %s' % (layers_num, 'layer' if layers_num == 1 else 'layers'))
-
-    for l, layer in enumerate(image.layers):
-        # Create a new layer to save the results (otherwise it will be impossible to undo the operation)
-        new_layer = gimp.Layer(image, layer.name + "_hl_alphatest", layer.width, layer.height, layer.type, layer.opacity, layer.mode)
-        image.add_layer(new_layer, l)
-        pdb.gimp_edit_clear(new_layer)
-        layer_name = layer.name
-
-        rgn = layer.get_pixel_rgn(0, 0, layer.width, layer.height)
-        colors = array('B', rgn[:, :])
-
-        if layer.type == RGBA_IMAGE:
-            for i in xrange(0, len(colors), 4):
-                alpha = colors[i + 3]
-                colors[i + 3] = 0 if alpha <= power else 255
-
-        elif layer.type == GRAYA_IMAGE:
-            for i in xrange(0, len(colors), 2):
-                alpha = colors[i + 1]
-                colors[i + 1] = 0 if alpha <= power else 255
-
-        rgn = new_layer.get_pixel_rgn(0, 0, layer.width, layer.height)
-        rgn[:, :] = colors.tostring()
-        image.remove_layer(layer)
-        new_layer.name = layer_name
-
-        gimp.progress_update(l / float(layers_num))
-
-
-def hl_alphatest(image, drawable, power, auto_power, dither_type, force_pal, alpha_dither):
-    pdb.gimp_context_push()
-    pdb.gimp_image_undo_group_start(image)
-
-    # Gimp does not support indexed mode if the image contains layer groups, so delete them
-    for layer in image.layers:
-        if pdb.gimp_item_is_group(layer):
-            pdb.gimp_image_merge_layer_group(image, layer)
-
-    if not auto_power and not alpha_dither:
-        prepare_layers(image, power)
-    pdb.gimp_image_convert_indexed(image, dither_type, MAKE_PALETTE, 255, alpha_dither, 0, '')
-
-    num_bytes, colormap = pdb.gimp_image_get_colormap(image)
-    addition_colors = (255 - num_bytes // 3) * [0, 0, 0] if force_pal else []
-    all_colors = list(colormap) + addition_colors + [0, 0, 255]
-    pdb.gimp_image_set_colormap(image, len(all_colors), all_colors)
-
-    last_index = len(all_colors) // 3 - 1
-    layers_num = len(image.layers)
-
-    gimp.progress_init('Converting %d %s to alphatest' % (layers_num, 'layer' if layers_num == 1 else 'layers'))
-
-    for l, layer in enumerate(image.layers):
-        if layer.type == INDEXED_IMAGE:
+    for layer in layers:
+        if not layer.has_alpha():
             continue
 
-        rgn = layer.get_pixel_rgn(0, 0, layer.width, layer.height)
-        indices = array('B', rgn[:, :])
-        for i in xrange(0, len(indices), 2):
-            idx, alpha = indices[i:i+2]
-            indices[i] = last_index if alpha <= power else idx
-            indices[i+1] = 255
-        rgn[:, :] = indices.tostring()
-        layer.flush()
-        layer.update(0, 0, layer.width, layer.height)
+        buffer = layer.get_buffer()
+        rect = buffer.get_extent()
 
-        gimp.progress_update(l / float(layers_num))
+        babl_format = Babl.get_name(layer.get_format())
 
-    pdb.gimp_displays_flush()
+        pixel_bytes = buffer.get(rect, 1.0, babl_format, Gegl.AbyssPolicy.NONE)
+        pixel_array = bytearray(pixel_bytes)
 
-    pdb.gimp_image_undo_group_end(image)
-    pdb.gimp_context_pop()
+        step = layer.get_bpp()
+        for i in range(step - 1, len(pixel_array), step):
+            alpha = pixel_array[i]
+            pixel_array[i] = 0 if alpha <= power else 255
+
+        shadow_buffer = layer.get_shadow_buffer()
+        shadow_buffer.set(rect, babl_format, bytes(pixel_array))
+        shadow_buffer.flush()
+
+        layer.merge_shadow(True)
+        layer.update(rect.x, rect.y, rect.width, rect.height)
 
 
-register(
-    LOAD_PROC,
-    'Converts the image to color indexing mode, moving the alpha channel colors as the last index in the palette',
-    '',
-    AUTHOR,
-    COPYRIGHT,
-    COPYRIGHT_YEAR,
-    'Alphatest',
-    'RGBA, GRAYA',
-    [
-        (PF_IMAGE, 'image', 'Input image', None),
-        (PF_DRAWABLE, 'drawable', 'Input drawable', None),
-        (PF_SLIDER, 'power', 'Maximum alpha value {0 - 254}', 0, (0, 254, 1)),
-        (PF_TOGGLE, 'auto-power', 'Auto maximum alpha value', False),
-        (PF_OPTION, 'dither-type', 'The dither type to use', 0, (
-            'None',
-            'FS (normal)',
-            'FS (reduced color bleeding)',
-            'Positioned'
-        )),
-        (PF_TOGGLE, 'force-pal', 'Force 256 size palette', True),
-        (PF_TOGGLE, 'alpha-dither', 'Use alpha dither', False),
-    ],
-    [],
-    hl_alphatest, menu='<Image>/Image/Half-Life/'
-)
+def image_convert_alphatest(image, power, dither_type, alpha_dither, quantize_after, force_pal):
+    image.undo_group_start()
 
-main()
+    # Gimp does not support indexed mode if the image contains layer groups, so delete them
+    for layer in image.get_layers():
+        if layer.is_group():
+            layer.merge()
+
+    if quantize_after and not alpha_dither:
+        image_binarize_alpha(image, power)
+
+    image.convert_indexed(
+        dither_type,
+        Gimp.ConvertPaletteType.GENERATE,
+        255,
+        alpha_dither,
+        False,
+        '')
+
+    babl_format = Babl.format('RGBA u8')
+
+    palette = image.get_palette()
+    colormap, num_colors = palette.get_colormap(babl_format)
+
+    if force_pal:
+        colormap += (255 - num_colors) * b'\0\0\0\xff'
+        num_colors = 255
+
+    colormap += b'\0\0\xff\xff'
+
+    palette.set_colormap(babl_format, colormap)
+
+    last_index = num_colors
+    layers = image.get_layers()
+    layers_num = len(layers)
+
+    Gimp.progress_init('Converting %d %s to alphatest' % (layers_num, 'layer' if layers_num == 1 else 'layers'))
+
+    for l, layer in enumerate(layers):
+        if layer.type() == Gimp.ImageType.INDEXED_IMAGE:
+            continue
+
+        buffer = layer.get_buffer()
+        rect = buffer.get_extent()
+
+        babl_format = Babl.get_name(layer.get_format())
+
+        pixel_bytes = buffer.get(rect, 1.0, babl_format, Gegl.AbyssPolicy.NONE)
+        pixel_array = bytearray(pixel_bytes)
+
+        for i in range(0, len(pixel_array), 2):
+            alpha = pixel_array[i+1]
+            if alpha <= power:
+                pixel_array[i] = last_index
+            pixel_array[i+1] = 255
+
+        buffer.set(rect, babl_format, bytes(pixel_array))
+        buffer.flush()
+
+        layer.update(rect.x, rect.y, rect.width, rect.height)
+        Gimp.progress_update(l / float(layers_num))
+
+    image.undo_group_end()
+
+
+class HLAlphaTest(Gimp.PlugIn):
+    def do_query_procedures(self):
+        return [ PROC_NAME ]
+
+    def do_create_procedure(self, name):
+        procedure = Gimp.ImageProcedure.new(self, name,
+                                            Gimp.PDBProcType.PLUGIN,
+                                            self.run, None)
+
+        procedure.set_image_types("RGBA, GRAYA")
+        procedure.set_sensitivity_mask(Gimp.ProcedureSensitivityMask.DRAWABLE)
+        procedure.set_menu_label("Half-Life Alphatest")
+        procedure.add_menu_path('<Image>/Image/Half-Life/')
+
+        procedure.set_documentation("Converts RGBA to Half-Life alphatest image",
+                                    "Converts the image to color indexing mode, moving the alpha channel colors as the last index in the palette",
+                                    name)
+        procedure.set_attribution(AUTHOR, AUTHOR, DATE)
+
+        procedure.add_uint_argument("power", "Alpha threshold value",
+            "Alpha value above which a pixel is not transparent",
+            0, 254, 127, GObject.ParamFlags.READWRITE)
+
+        procedure.add_enum_argument("dither-type", "Dither type",
+            "Dither type to use",
+            Gimp.ConvertDitherType, Gimp.ConvertDitherType.NONE, GObject.ParamFlags.READWRITE)
+
+        procedure.add_boolean_argument("alpha-dither", "Alpha dither",
+            "Use alpha dither",
+            False, GObject.ParamFlags.READWRITE)
+
+        procedure.add_boolean_argument("quantize-after", "Quantize after mask",
+            "Apply quantization after the alpha threshold mask has been enforced, rather than before. Ignored if alpha dither is enabled",
+            True, GObject.ParamFlags.READWRITE)
+
+        procedure.add_boolean_argument("force-pal", "Force 256 size palette",
+            "Palette size will always be 256, regardless of the number of colors used",
+            True, GObject.ParamFlags.READWRITE)
+
+        return procedure
+
+    def run(self, procedure, run_mode, image, drawables, config, run_data):
+        if run_mode == Gimp.RunMode.INTERACTIVE:
+            GimpUi.init(PROC_NAME)
+            dialog = GimpUi.ProcedureDialog.new(procedure, config)
+            dialog.fill(None)
+            if not dialog.run():
+                dialog.destroy()
+                return procedure.new_return_values(Gimp.PDBStatusType.CANCEL,
+                                                       GLib.Error())
+
+        power = config.get_property("power")
+        dither_type = config.get_property("dither-type")
+        alpha_dither = config.get_property("alpha-dither")
+        quantize_after = config.get_property("quantize-after")
+        force_pal = config.get_property("force-pal")
+
+        image_convert_alphatest(image, power, dither_type, alpha_dither, quantize_after, force_pal)
+
+        if run_mode == Gimp.RunMode.INTERACTIVE:
+            dialog.destroy()
+
+        Gimp.displays_flush()
+
+        return procedure.new_return_values(Gimp.PDBStatusType.SUCCESS, None)
+
+
+if __name__ == '__main__':
+    Gimp.main(HLAlphaTest.__gtype__, sys.argv)
